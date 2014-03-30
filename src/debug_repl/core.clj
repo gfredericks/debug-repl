@@ -4,14 +4,31 @@
             [clojure.tools.nrepl.misc :refer [response-for]]
             [clojure.tools.nrepl.transport :as transport]))
 
+;; TODO:
+;;   - Report the correct ns so the repl switches back & forth?
+;;   - Avoid reporting :done multiple times
+
+(defonce
+  ^{:doc
+    "A map from nrepl session IDs to a stack of debug repl maps, each of which
+     contain:
+
+    :unbreak -- a promise which will cause the thread of execution to resume
+                when it is delivered
+    :nested-session-id -- the nrepl session ID being used to evaluate code
+                          for this repl
+    :eval -- a function that takes a code string and returns the result of
+             evaling in this repl."}
+  active-debug-repls
+  (atom {}))
+
 (defmacro current-locals
+  "Returns a map from symbols of locals in the lexical scope to their
+  values."
   []
   (into {}
         (for [name (keys &env)]
           [(list 'quote name) name])))
-
-(def info
-  (atom {}))
 
 (defmacro ^:private catchingly
   "Returns either [:returned x] or [:threw t]."
@@ -25,7 +42,7 @@
   (case type :returned x :threw (throw x)))
 
 (defn break
-  [locals ns]
+  [locals breakpoint-name ns]
   (let [{:keys [transport],
          session-id ::orig-session-id
          nest-session-fn ::nest-session}
@@ -43,7 +60,7 @@
                                  (meta)
                                  :popped)))]
     ;; TODO: nesting
-    (swap! info update-in [session-id] conj
+    (swap! active-debug-repls update-in [session-id] conj
            {:unbreak           unbreak-p
             :nested-session-id (nest-session-fn)
             :eval              (fn [code]
@@ -52,7 +69,8 @@
                                    (uncatch @result-p)))})
     (transport/send transport
                     (response-for *msg*
-                                  {:out "HIJACKING REPL!"}))
+                                  {:out (str "Hijacking repl for breakpoint: "
+                                             breakpoint-name)}))
     (transport/send transport
                     (response-for *msg*
                                   {:status #{:done}}))
@@ -70,20 +88,24 @@
     nil))
 
 (defmacro break!
-  []
-  `(break (current-locals) ~*ns*))
+  ([]
+     `(break! "unnamed"))
+  ([breakpoint-name]
+     `(break (current-locals)
+             ~breakpoint-name
+             ~*ns*)))
 
 (defn unbreak!
   []
   (let [{session-id ::orig-session-id} *msg*
-        p (-> @info
+        p (-> @active-debug-repls
               (get session-id)
               (peek)
               (:unbreak))]
     (when-not p
       (throw (Exception. "No debug-repl to unbreak from!")))
     ;; TODO: dissoc as well? (minor memory leak)
-    (swap! info update-in [session-id] pop)
+    (swap! active-debug-repls update-in [session-id] pop)
     (deliver p nil)
     nil))
 
@@ -98,7 +120,7 @@
 
 (defn ^:private wrap-eval
   [{:keys [op code session] :as msg}]
-  (let [nested-session-id (-> @info
+  (let [nested-session-id (-> @active-debug-repls
                               (get session)
                               (peek)
                               (:nested-session-id))]
@@ -111,7 +133,7 @@
             (and nested-session-id (= "eval" op))
             (assoc :code
               (pr-str
-               `((-> @info
+               `((-> @active-debug-repls
                      (get ~session)
                      (peek)
                      (:eval))
@@ -133,8 +155,12 @@
       (wrap-eval)
       (handler)))
 
-(defn wrap-debug
+(defn wrap-debug-repl
   [handler]
   ;; having handle-debug as a separate function makes it easier to do
   ;; interactive development on this middleware
   (fn [msg] (handle-debug handler msg)))
+
+(defn try-it
+  [x]
+  (break!))
