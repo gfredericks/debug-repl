@@ -4,12 +4,7 @@
             [clojure.tools.nrepl.misc :refer [response-for]]
             [clojure.tools.nrepl.transport :as transport]))
 
-(defn stdout-println
-  "For debugging while developing debug-repl."
-  [& obs]
-  (.println System/out (apply print-str obs)))
-
-(defmacro locals
+(defmacro current-locals
   []
   (into {}
         (for [name (keys &env)]
@@ -17,22 +12,6 @@
 
 (def info
   (atom {}))
-
-;; RESPONSE REFERENCE
-;; ({:status #{:done},
-;;   :session "1f0f9793-2a52-40a0-a3c0-66e1a4b635e6",
-;;   :id "47"}
-;;  {:ns "debug-repl.core",
-;;   :value "nil",
-;;   :session "1f0f9793-2a52-40a0-a3c0-66e1a4b635e6",
-;;   :id "47"}
-;;  {:status #{:done},
-;;   :session "1f0f9793-2a52-40a0-a3c0-66e1a4b635e6",
-;;   :id "46"}
-;;  {:ns "debug-repl.core",
-;;   :value "nil",
-;;   :session "1f0f9793-2a52-40a0-a3c0-66e1a4b635e6",
-;;   :id "46"})
 
 (defmacro ^:private catchingly
   "Returns either [:returned x] or [:threw t]."
@@ -68,7 +47,6 @@
            {:unbreak           unbreak-p
             :nested-session-id (nest-session-fn)
             :eval              (fn [code]
-                                 (stdout-println "EVALING" code)
                                  (let [result-p (promise)]
                                    (swap! eval-requests conj [code result-p])
                                    (uncatch @result-p)))})
@@ -89,8 +67,11 @@
                       ((binding [*ns* ns] (eval (read-string code'))) locals))))
           (Thread/sleep 50))
         (recur)))
-    (stdout-println "UNBROKEN")
     nil))
+
+(defmacro break!
+  []
+  `(break (current-locals) ~*ns*))
 
 (defn unbreak!
   []
@@ -99,27 +80,12 @@
               (get session-id)
               (peek)
               (:unbreak))]
-    (assert p)
+    (when-not p
+      (throw (Exception. "No debug-repl to unbreak from!")))
     ;; TODO: dissoc as well? (minor memory leak)
     (swap! info update-in [session-id] pop)
     (deliver p nil)
     nil))
-
-(defmacro break!
-  []
-  `(break (locals) ~*ns*))
-
-(defonce msgs (atom []))
-(defonce sent (atom []))
-
-(defn wrap-transport
-  [t]
-  (reify transport/Transport
-    (recv [this] (transport/recv t))
-    (recv [this timeout] (transport/recv t timeout))
-    (send [this msg]
-      (stdout-println "SENT:" (pr-str msg))
-      (transport/send t msg))))
 
 (defn wrap-transport-sub-session
   [t from-session to-session]
@@ -153,9 +119,7 @@
 
 (defn handle-debug
   [handler {:keys [transport op code session] :as msg}]
-  (stdout-println "RECEIVED: " (pr-str msg))
   (-> msg
-      (update-in [:transport] wrap-transport)
       (assoc ::orig-session-id session
              ::nest-session (fn []
                               {:post [%]}
@@ -174,9 +138,3 @@
   ;; having handle-debug as a separate function makes it easier to do
   ;; interactive development on this middleware
   (fn [msg] (handle-debug handler msg)))
-
-
-(comment
-  (take 8 (reverse @sent))
-  (last @msgs)
-  )
