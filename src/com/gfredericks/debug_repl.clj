@@ -1,4 +1,4 @@
-(ns debug-repl.core
+(ns com.gfredericks.debug-repl
   (:require [clojure.tools.nrepl.middleware :refer [set-descriptor!]]
             [clojure.tools.nrepl.middleware.interruptible-eval :refer [*msg*]]
             [clojure.tools.nrepl.misc :refer [response-for]]
