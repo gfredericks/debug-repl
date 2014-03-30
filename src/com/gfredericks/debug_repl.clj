@@ -7,6 +7,11 @@
 ;; TODO:
 ;;   - Report the correct ns so the repl switches back & forth?
 ;;   - Avoid reporting :done multiple times
+;;   - Suppress the return value from (unbreak!)? this would avoid
+;;     the command returning two results...
+;;   - Detect when (break!) is called but the middleware is missing?
+;;     And give a helpful error message.
+;;   - Better reporting on how many nested repls there are, etc
 
 (defonce
   ^{:doc
@@ -88,6 +93,12 @@
     nil))
 
 (defmacro break!
+  "Use only with the com.gfredericks.debug-repl/wrap-debug-repl middleware.
+
+  Causes execution to stop and the repl switches to evaluating code in the
+  context of the breakpoint. Resume exeution by calling (unbreak!). REPL
+  code can result in a nested call to break! which will work in a reasonable
+  way. Nested breaks require multiple calls to (unbreak!) to undo."
   ([]
      `(break! "unnamed"))
   ([breakpoint-name]
@@ -96,6 +107,8 @@
              ~*ns*)))
 
 (defn unbreak!
+  "Causes the latest breakpoint to resume execution; the repl returns to the
+  state it was in prior to the breakpoint."
   []
   (let [{session-id ::orig-session-id} *msg*
         p (-> @active-debug-repls
@@ -109,7 +122,7 @@
     (deliver p nil)
     nil))
 
-(defn wrap-transport-sub-session
+(defn ^:private wrap-transport-sub-session
   [t from-session to-session]
   (reify transport/Transport
     (recv [this] (transport/recv t))
@@ -139,7 +152,7 @@
                      (:eval))
                  ~code))))))
 
-(defn handle-debug
+(defn ^:private handle-debug
   [handler {:keys [transport op code session] :as msg}]
   (-> msg
       (assoc ::orig-session-id session
@@ -160,7 +173,3 @@
   ;; having handle-debug as a separate function makes it easier to do
   ;; interactive development on this middleware
   (fn [msg] (handle-debug handler msg)))
-
-(defn try-it
-  [x]
-  (break!))
