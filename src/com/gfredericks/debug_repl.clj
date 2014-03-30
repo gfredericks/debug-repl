@@ -5,6 +5,7 @@
             [clojure.tools.nrepl.transport :as transport]))
 
 ;; TODO:
+;;   - Close nrepl sessions after unbreak!
 ;;   - Report the correct ns so the repl switches back & forth?
 ;;   - Avoid reporting :done multiple times
 ;;   - Suppress the return value from (unbreak!)? this would avoid
