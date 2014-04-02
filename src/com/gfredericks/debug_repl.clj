@@ -26,13 +26,13 @@
 
 (defn init-session-data
   [session-id]
-  {:state             :idle
+  {:state             :normal-idle
    :active-session-id session-id})
 
 (defmulti transition (fn [user-session-data action & args]
                        [(:state user-session-data) action]))
 
-(defmethod transition [:idle :eval-start]
+(defmethod transition [:normal-idle :eval-start]
   [user-session-data _action eval-id]
   (assoc user-session-data
     :state :normal-eval
@@ -42,7 +42,7 @@
   [user-session-data _action eval-id]
   (assert (= eval-id (:active-eval-id user-session-data)))
   (-> user-session-data
-      (assoc :state :idle)
+      (assoc :state :normal-idle)
       (dissoc :active-eval-id)))
 
 (defmethod transition [:normal-eval :break]
@@ -67,23 +67,33 @@
   (throw (Exception. "No debug-repl to unbreak from!")))
 
 (defmethod transition [:debug-eval :unbreak]
-  [user-session-data _action]
+  [user-session-data _action callback]
   (let [{:keys [paused-evaluations]} user-session-data
         {:keys [unbreak-fn session-id eval-id]} (peek paused-evaluations)]
-    ;; how do I make sure this future doesn't run until after the
-    ;; agent has updated??
-    (future (unbreak-fn))
     (-> user-session-data
-        (assoc :state :unbreaking)
+        (assoc :state :unbreaking
+               :active-session-id session-id
+               :active-eval-id eval-id)
         (update-in [:paused-evaluations] pop)
-        (update-in [:unbreaking-stack] conj
-                   {:session-id session-id
-                    :eval-id eval-id}))))
+        (update-in [:unbreak-stack] conj
+                   {:callback   callback
+                    :session-id (:active-session-id user-session-data)
+                    :eval-id    (:active-eval-id user-session-data)})
+        (vary-meta assoc :after unbreak-fn))))
 
 (defmethod transition [:unbreaking :eval-done]
   [user-session-data _action]
-  (assoc user-session-data
-    :state :post-unbreak))
+  (let [[{:keys [callback session-id eval-id]} & more]
+        (:unbreak-callbacks user-session-data)]
+    (if callback
+      (-> user-session-data
+          (assoc :active-session-id session-id
+                 :active-eval-id eval-id)
+          (vary-meta assoc :after callback))
+      (assoc user-session-data
+        :state (if (empty? (:paused-evaluations user-session-data))
+                 :normal-idle
+                 :debug-idle)))))
 
 #_(defmethod transition [:post-unbreak :eval-done]
   [user-session-data _action]
@@ -102,20 +112,19 @@
     "A map from user-visible nrepl session IDs to a session-data map
     as handled by the above functions."}
   session-datas
-  (doto (agent {} :error-handler (fn [e]
-                                   (.println System/err "WAT ON EARTH")
-                                   (.printStackTrace e)))
+  (doto (atom {})
     (add-watch ::logger
                (fn [_ _ old new]
                  (let [[session-id :as ids] (->> (keys new)
                                                  (remove #(= (get old %)
                                                              (get new %))))]
-                   (assert (= 1 (count ids)))
-                   (.println System/out
-                             (format "State transition (%s): %s -> %s"
-                                     session-id
-                                     (get-in old [session-id :state])
-                                     (get-in new [session-id :state]))))))))
+                   (assert (< (count ids) 2))
+                   (when session-id
+                     (.println System/out
+                               (format "State transition (%s): %s -> %s"
+                                       session-id
+                                       (get-in old [session-id :state])
+                                       (get-in new [session-id :state])))))))))
 
 (defn current-state
   [user-session-id]
@@ -126,27 +135,24 @@
   (get-in @session-datas [user-session-id :active-eval-id]))
 
 (defn transition!
+  "Returns the updated info for the given user session."
   [user-session-id action & args]
   (.println System/out (pr-str (list 'transition! user-session-id action '...)))
-  (let [error-p (promise)]
-    (send session-datas
-          (fn [m]
-            (try (apply update-in m [user-session-id] transition
+  (let [new-data (swap! session-datas
+                        (fn [m]
+                          (let [m (vary-meta m assoc :after nil)]
+                            (apply update-in m [user-session-id] transition
                                    action
-                                   args)
-                 (catch Throwable t
-                   (deliver error-p t)
-                   m))))
-    (await session-datas)
-    (when (realized? error-p)
-      (throw @error-p))))
+                                   args))))]
+    (when-let [f (:after new-data)] (f))
+    (get new-data user-session-id)))
 
 (defn ensure-registered
   [user-session-id]
   (when-not (contains? @session-datas user-session-id)
-    (send session-datas util/assoc-or
-          user-session-id
-          (init-session-data user-session-id))))
+    (swap! session-datas util/assoc-or
+           user-session-id
+           (init-session-data user-session-id))))
 
 (defn transition-alerter
   "Returns a promise that will be delivered when the user session
@@ -230,10 +236,9 @@
   state it was in prior to the breakpoint."
   []
   (let [{user-session-id ::user-session-id} *msg*
-        p (transition-alerter user-session-id :unbreaking)]
-    (transition! (::user-session-id *msg*) :unbreak)
-    @p
-    nil))
+        p (promise)]
+    (transition! (::user-session-id *msg*) :unbreak #(deliver p nil))
+    @p))
 
 (defn ^:private transform-incoming
   [msg user-session-id]
@@ -261,10 +266,14 @@
   [msg user-session-id]
   ;; TODO: change the :id for eval results.
   ;; TODO: how do we know when to drop messages?
-  (when (and (contains? (:status msg) :done)
+  (let [msg (assoc msg :session user-session-id)]
+    (if (and (contains? (:status msg) :done)
              (= (:id msg) (active-eval-id user-session-id)))
-    (transition! user-session-id :eval-done (:id msg)))
-  (assoc msg :session user-session-id))
+      (let [{:keys [state]}
+            (transition! user-session-id :eval-done (:id msg))]
+        (when (#{:normal-idle :debug-idle} state)
+          msg))
+      msg)))
 
 (defn ^:private handle-debug
   [handler {:keys [transport op code session] :as msg}]
@@ -286,6 +295,7 @@
       (assoc :transport (reify transport/Transport
                           (send [_ msg]
                             (when-let [msg' (transform-outgoing msg session)]
+                              (println "OUT" msg')
                               (transport/send transport msg')))))
       (transform-incoming session)
       (some-> (handler))))

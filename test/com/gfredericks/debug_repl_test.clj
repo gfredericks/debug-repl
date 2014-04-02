@@ -20,8 +20,7 @@
 
 (defn clear-session-info-fixture
   [test]
-  (send session-datas (constantly {}))
-  (await session-datas)
+  (reset! session-datas {})
   (test))
 
 (use-fixtures :each server-fixture clear-session-info-fixture)
