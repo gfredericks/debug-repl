@@ -2,7 +2,8 @@
   (:require [clojure.tools.nrepl.middleware :refer [set-descriptor!]]
             [clojure.tools.nrepl.middleware.interruptible-eval :refer [*msg*]]
             [clojure.tools.nrepl.misc :refer [response-for]]
-            [clojure.tools.nrepl.transport :as transport]))
+            [clojure.tools.nrepl.transport :as transport])
+  (:import (java.util.concurrent ArrayBlockingQueue)))
 
 ;; TODO:
 ;;   - Close nrepl sessions after unbreak!
@@ -55,22 +56,14 @@
         *msg*
 
         unbreak-p (promise)
-        eval-requests (atom clojure.lang.PersistentQueue/EMPTY)
-        pop-eval-request (fn []
-                           (when-not (empty? @eval-requests)
-                             (-> eval-requests
-                                 (swap! (fn [q]
-                                          (if (empty? q)
-                                            q
-                                            (vary-meta (pop q) assoc :popped (peek q)))))
-                                 (meta)
-                                 :popped)))]
+        ;; probably never need more than 1 here
+        eval-requests (ArrayBlockingQueue. 2)]
     (swap! active-debug-repls update-in [session-id] conj
            {:unbreak           (fn [] (deliver unbreak-p nil))
             :nested-session-id (nest-session-fn)
             :eval              (fn [code]
                                  (let [result-p (promise)]
-                                   (swap! eval-requests conj [code result-p])
+                                   (.put eval-requests [code result-p])
                                    (uncatch @result-p)))})
     (transport/send transport
                     (response-for *msg*
@@ -81,7 +74,7 @@
                                   {:status #{:done}}))
     (loop []
       (when-not (realized? unbreak-p)
-        (if-let [[code result-p] (pop-eval-request)]
+        (if-let [[code result-p] (.poll eval-requests)]
           (let [code' (format "(fn [{:syms [%s]}]\n%s\n)"
                               (clojure.string/join " " (keys locals))
                               code)]
