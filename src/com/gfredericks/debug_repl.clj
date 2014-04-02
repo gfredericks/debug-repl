@@ -174,3 +174,6 @@
   ;; having handle-debug as a separate function makes it easier to do
   ;; interactive development on this middleware
   (fn [msg] (handle-debug handler msg)))
+
+(set-descriptor! #'wrap-debug-repl
+                 {:expects #{"eval" "clone"}})
