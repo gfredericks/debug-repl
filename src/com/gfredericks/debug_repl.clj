@@ -65,7 +65,6 @@
                                             (vary-meta (pop q) assoc :popped (peek q)))))
                                  (meta)
                                  :popped)))]
-    ;; TODO: nesting
     (swap! active-debug-repls update-in [session-id] conj
            {:unbreak           (fn [] (deliver unbreak-p nil))
             :nested-session-id (nest-session-fn)
