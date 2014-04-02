@@ -160,8 +160,8 @@
              ::nest-session (fn []
                               {:post [%]}
                               (let [p (promise)]
-                                (handler {:session session,
-                                          :op "clone",
+                                (handler {:session session
+                                          :op "clone"
                                           :transport (reify transport/Transport
                                                        (send [_ msg]
                                                          (deliver p msg)))})
