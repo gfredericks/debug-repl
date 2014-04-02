@@ -2,7 +2,8 @@
   (:require [clojure.tools.nrepl.middleware :refer [set-descriptor!]]
             [clojure.tools.nrepl.middleware.interruptible-eval :refer [*msg*]]
             [clojure.tools.nrepl.misc :refer [response-for]]
-            [clojure.tools.nrepl.transport :as transport])
+            [clojure.tools.nrepl.transport :as transport]
+            [com.gfredericks.debug-repl.util :as util])
   (:import (java.util.concurrent ArrayBlockingQueue)))
 
 ;; TODO:
@@ -37,16 +38,6 @@
         (for [name (keys &env)]
           [(list 'quote name) name])))
 
-(defmacro ^:private catchingly
-  "Returns either [:returned x] or [:threw t]."
-  [& body]
-  `(try [:returned (do ~@body)]
-        (catch Throwable t#
-          [:threw t#])))
-
-(defn ^:private uncatch
-  [[type x]]
-  (case type :returned x :threw (throw x)))
 
 (defn break
   [locals breakpoint-name ns]
@@ -64,7 +55,7 @@
             :eval              (fn [code]
                                  (let [result-p (promise)]
                                    (.put eval-requests [code result-p])
-                                   (uncatch @result-p)))})
+                                   (util/uncatch @result-p)))})
     (transport/send transport
                     (response-for *msg*
                                   {:out (str "Hijacking repl for breakpoint: "
@@ -79,7 +70,7 @@
                               (clojure.string/join " " (keys locals))
                               code)]
             (deliver result-p
-                     (catchingly
+                     (util/catchingly
                       ((binding [*ns* ns] (eval (read-string code'))) locals))))
           (Thread/sleep 50))
         (recur)))
