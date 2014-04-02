@@ -16,19 +16,77 @@
 ;;     And give a helpful error message.
 ;;   - Better reporting on how many nested repls there are, etc
 
+
+;;
+;; State Machine Code
+;;
+
+(defn init-session-data
+  [session-id]
+  {:state             :normal
+   :active-session-id session-id})
+
+(defmulti transition (fn [user-session-data action & args]
+                       [(:state user-session-data) action]))
+
+(defmethod transition [:normal :break]
+  [user-session-data _action new-session-id eval-fn unbreak-fn]
+  (assoc user-session-data
+    ;; do we need an in-between state while we're sending the :done?
+    :state :debug-repl
+    :sub-sessions (list {:id         new-session-id
+                         :eval-fn    eval-fn
+                         :unbreak-fn unbreak-fn})))
+
+(defmethod transition [:debug-repl :unbreak]
+  [user-session-data _action]
+  (let [{:keys [sub-sessions]} user-session-data
+        {:keys [unbreak-fn]} (peek sub-sessions)]
+    (unbreak-fn)
+    (assoc user-session-data
+      :state :unbreaking
+      ;; do we want to pop now or on the next transition?
+      :sub-sessions (pop sub-sessions))))
+
+(defmethod transition :default
+  [{:keys [state]} action]
+  (if (= :unbreak action)
+    (throw (Exception. "No debug-repl to unbreak from!"))
+    (throw (Exception. (format "Bad debug-repl state transition: %s -> %s"
+                               (name state)
+                               (name action))))))
+
 (defonce
   ^{:doc
-    "A map from nrepl session IDs to a stack of debug repl maps, each of which
-     contain:
+    "A map from user-visible nrepl session IDs to a session-data map
+    as handled by the above functions."}
+  session-datas
+  (agent {}))
 
-    :unbreak -- a 0-arg function which will cause the thread of
-                execution to resume when it is called
-    :nested-session-id -- the nrepl session ID being used to evaluate code
-                          for this repl
-    :eval -- a function that takes a code string and returns the result of
-             evaling in this repl."}
-  active-debug-repls
-  (atom {}))
+(defn transition!
+  [user-session-id action & args]
+  (let [error-p (promise)]
+    (send session-datas
+          (fn [m]
+            (try (apply update-in m [user-session-id] transition
+                        action
+                        args)
+                 (catch Throwable t
+                   (deliver error-p t)))))
+    (await session-datas)
+    (when (realized? error-p)
+      (throw @error-p))))
+
+(defn ensure-registered
+  [user-session-id]
+  (when-not (contains? @session-datas user-session-id)
+    (send session-datas util/assoc-or
+          user-session-id
+          (init-session-data user-session-id))))
+
+;;
+;; Normal Code
+;;
 
 (defmacro current-locals
   "Returns a map from symbols of locals in the lexical scope to their
@@ -42,20 +100,20 @@
 (defn break
   [locals breakpoint-name ns]
   (let [{:keys [transport],
-         session-id ::orig-session-id
-         nest-session-fn ::nest-session}
+         user-session-id ::user-session-id
+         nest-session-fn ::nest-session-fn}
         *msg*
 
         unbreak-p (promise)
         ;; probably never need more than 1 here
         eval-requests (ArrayBlockingQueue. 2)]
-    (swap! active-debug-repls update-in [session-id] conj
-           {:unbreak           (fn [] (deliver unbreak-p nil))
-            :nested-session-id (nest-session-fn)
-            :eval              (fn [code]
-                                 (let [result-p (promise)]
-                                   (.put eval-requests [code result-p])
-                                   (util/uncatch @result-p)))})
+    (transition! user-session-id :break
+                 (nest-session-fn)
+                 (fn [code]
+                   (let [result-p (promise)]
+                     (.put eval-requests [code result-p])
+                     (util/uncatch @result-p)))
+                 (fn [] (deliver unbreak-p nil)))
     (transport/send transport
                     (response-for *msg*
                                   {:out (str "Hijacking repl for breakpoint: "
@@ -94,62 +152,53 @@
   "Causes the latest breakpoint to resume execution; the repl returns to the
   state it was in prior to the breakpoint."
   []
-  (let [{session-id ::orig-session-id} *msg*
-        f (-> @active-debug-repls
-              (get session-id)
-              (peek)
-              (:unbreak))]
-    (when-not f
-      (throw (Exception. "No debug-repl to unbreak from!")))
-    ;; TODO: dissoc as well? (minor memory leak)
-    (swap! active-debug-repls update-in [session-id] pop)
-    (f)
-    nil))
+  (transition! (::user-session-id *msg*) :unbreak))
 
-(defn ^:private wrap-transport-sub-session
-  [t from-session to-session]
-  (reify transport/Transport
-    (recv [this] (transport/recv t))
-    (recv [this timeout] (transport/recv t timeout))
-    (send [this msg]
-      (let [msg' (cond-> msg (= from-session (:session msg)) (assoc :session to-session))]
-        (transport/send t msg')))))
-
-(defn ^:private wrap-eval
-  [{:keys [op code session] :as msg}]
-  (let [nested-session-id (-> @active-debug-repls
-                              (get session)
-                              (peek)
-                              (:nested-session-id))]
+(defn ^:private transform-incoming
+  [msg user-session-id]
+  (let [{:keys [state sub-sessions]} (@session-datas user-session-id)
+        {:keys [id]} (peek sub-sessions)
+        {:keys [op code]} msg]
     (cond-> msg
-            nested-session-id
-            (-> (assoc :session nested-session-id)
-                (update-in [:transport] wrap-transport-sub-session nested-session-id session))
 
+            id
+            (assoc :session id)
 
-            (and nested-session-id (= "eval" op))
+            (and (= state :debug-repl) (= op "eval"))
             (assoc :code
               (pr-str
-               `((-> @active-debug-repls
-                     (get ~session)
+               `((-> @session-datas
+                     (get ~user-session-id)
+                     (:sub-sessions)
                      (peek)
-                     (:eval))
+                     (:eval-fn))
                  ~code))))))
+
+(defn ^:private transform-outgoing
+  [msg user-session-id]
+  ;; TODO: change the :id for eval results.
+  (assoc msg :session user-session-id))
 
 (defn ^:private handle-debug
   [handler {:keys [transport op code session] :as msg}]
+  (ensure-registered session)
   (-> msg
-      (assoc ::orig-session-id session
-             ::nest-session (fn []
-                              {:post [%]}
-                              (let [p (promise)]
-                                (handler {:session session
-                                          :op "clone"
-                                          :transport (reify transport/Transport
-                                                       (send [_ msg]
-                                                         (deliver p msg)))})
-                                (:new-session @p))))
-      (wrap-eval)
+      (assoc ::user-session-id session
+             ::nest-session-fn
+             (fn []
+               {:post [%]}
+               (let [p (promise)]
+                 (handler {:session session
+                           :op "clone"
+                           :transport (reify transport/Transport
+                                        (send [_ msg]
+                                          (deliver p msg)))})
+                 (:new-session @p))))
+      (assoc :transport (reify transport/Transport
+                          (send [_ msg]
+                            (let [msg' (transform-outgoing msg session)]
+                              (transport/send transport msg')))))
+      (transform-incoming session)
       (handler)))
 
 (defn wrap-debug-repl
@@ -159,4 +208,4 @@
   (fn [msg] (handle-debug handler msg)))
 
 (set-descriptor! #'wrap-debug-repl
-                 {:expects #{"eval" "clone"}})
+                 {:expects #{"clone" "eval" #'clojure.tools.nrepl.middleware.session/session}})

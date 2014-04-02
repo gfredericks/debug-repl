@@ -18,12 +18,13 @@
       (binding [*client* c]
         (test)))))
 
-(defn clear-active-repl-info-fixture
+(defn clear-session-info-fixture
   [test]
-  (reset! active-debug-repls {})
+  (send session-datas (constantly {}))
+  (await session-datas)
   (test))
 
-(use-fixtures :each server-fixture clear-active-repl-info-fixture)
+(use-fixtures :each server-fixture clear-session-info-fixture)
 
 (defn fresh-session
   []

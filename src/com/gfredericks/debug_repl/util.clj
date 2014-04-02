@@ -10,3 +10,7 @@
 (defn uncatch
   [[type x]]
   (case type :returned x :threw (throw x)))
+
+(defn assoc-or
+  [m k v]
+  (cond-> m (not (contains? m k)) (assoc k v)))
