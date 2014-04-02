@@ -53,6 +53,11 @@
   `(eval* ~session-fn (client/code ~eval-code)))
 
 (deftest hello-world-test
+  ;; Not even testing the debug-repl here, just basic eval.
+  (let [f (fresh-session)]
+    (is (= [42] (eval f (* 2 3 7))))))
+
+(deftest basic-debug-repl-test
   (let [f (fresh-session)]
     (is (= [] (eval f (let [x 42] (break!) :return)))
         "Breaking returns no results.")
@@ -61,3 +66,11 @@
     (is (= [:return nil] (eval f (unbreak!)))
         "unbreak first returns the return value from the
          unbroken thread, then its own nil.")))
+
+#_(deftest break-unbreak-break-test
+  "Just break/unbreak twice in a row."
+  (let [f (fresh-session)]
+    (is (= [] (eval f (break!))))
+    (is (= [nil nil] (eval f (unbreak!))))
+    (is (= [] (eval f (break!))))
+    (is (= [nil nil] (eval f (unbreak!))))))
