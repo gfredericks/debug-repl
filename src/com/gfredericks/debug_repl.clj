@@ -19,8 +19,8 @@
     "A map from nrepl session IDs to a stack of debug repl maps, each of which
      contain:
 
-    :unbreak -- a promise which will cause the thread of execution to resume
-                when it is delivered
+    :unbreak -- a 0-arg function which will cause the thread of
+                execution to resume when it is called
     :nested-session-id -- the nrepl session ID being used to evaluate code
                           for this repl
     :eval -- a function that takes a code string and returns the result of
@@ -67,7 +67,7 @@
                                  :popped)))]
     ;; TODO: nesting
     (swap! active-debug-repls update-in [session-id] conj
-           {:unbreak           unbreak-p
+           {:unbreak           (fn [] (deliver unbreak-p nil))
             :nested-session-id (nest-session-fn)
             :eval              (fn [code]
                                  (let [result-p (promise)]
@@ -112,15 +112,15 @@
   state it was in prior to the breakpoint."
   []
   (let [{session-id ::orig-session-id} *msg*
-        p (-> @active-debug-repls
+        f (-> @active-debug-repls
               (get session-id)
               (peek)
               (:unbreak))]
-    (when-not p
+    (when-not f
       (throw (Exception. "No debug-repl to unbreak from!")))
     ;; TODO: dissoc as well? (minor memory leak)
     (swap! active-debug-repls update-in [session-id] pop)
-    (deliver p nil)
+    (f)
     nil))
 
 (defn ^:private wrap-transport-sub-session
