@@ -39,8 +39,7 @@
     :active-eval-id eval-id))
 
 (defmethod transition [:normal-eval :eval-done]
-  [user-session-data _action eval-id]
-  (assert (= eval-id (:active-eval-id user-session-data)))
+  [user-session-data _action]
   (-> user-session-data
       (assoc :state :normal-idle)
       (dissoc :active-eval-id)))
@@ -80,6 +79,12 @@
                     :session-id (:active-session-id user-session-data)
                     :eval-id    (:active-eval-id user-session-data)})
         (vary-meta assoc :after unbreak-fn))))
+
+(defmethod transition [:debug-eval :eval-done]
+  [user-session-data _action]
+  (-> user-session-data
+      (assoc :state :debug-idle)
+      (dissoc :active-session-id :active-eval-id)))
 
 (defmethod transition [:unbreaking :eval-done]
   [user-session-data _action]
@@ -122,9 +127,7 @@
                                (format "State transition (%s): %s -> %s"
                                        session-id
                                        (get-in old [session-id :state])
-                                       (get-in new [session-id :state]))))
-                   (when-not (get-in new [session-id :state])
-                     (.println System/out (str "Wat is that?" (pr-str (get new session-id))))))))))
+                                       (get-in new [session-id :state])))))))))
 
 (defn current-state
   [user-session-id]
@@ -259,7 +262,7 @@
      (and (contains? (:status msg) :done)
           (= (:id msg) (active-eval-id user-session-id)))
      (let [{:keys [state]}
-           (transition! user-session-id :eval-done (:id msg))]
+           (transition! user-session-id :eval-done)]
        (when (#{:normal-idle :debug-idle} state)
          msg))
 
