@@ -101,18 +101,16 @@
 
 (defmethod transition :default
   [{:keys [state]} action & args]
-  (if (= :unbreak action)
-
-    (throw (Exception. (format "Bad debug-repl state transition: %s -> %s"
-                               (name state)
-                               (name action))))))
+  (throw (Exception. (format "Bad debug-repl state transition: %s -> %s"
+                             (name state)
+                             (name action)))))
 
 (defonce
   ^{:doc
     "A map from user-visible nrepl session IDs to a session-data map
     as handled by the above functions."}
   session-datas
-  (doto (atom {})
+  (doto (atom {} :validator map?)
     (add-watch ::logger
                (fn [_ _ old new]
                  (let [[session-id :as ids] (->> (keys new)
@@ -124,7 +122,9 @@
                                (format "State transition (%s): %s -> %s"
                                        session-id
                                        (get-in old [session-id :state])
-                                       (get-in new [session-id :state])))))))))
+                                       (get-in new [session-id :state]))))
+                   (when-not (get-in new [session-id :state])
+                     (.println System/out (str "Wat is that?" (pr-str (get new session-id))))))))))
 
 (defn current-state
   [user-session-id]
@@ -153,19 +153,6 @@
     (swap! session-datas util/assoc-or
            user-session-id
            (init-session-data user-session-id))))
-
-(defn transition-alerter
-  "Returns a promise that will be delivered when the user session
-  next transitions out of the given state."
-  [user-session-id out-state]
-  (let [p (promise)
-        k (gensym)]
-    (add-watch session-datas k
-               (fn [_ _ old new]
-                 (when (= out-state (:state old))
-                   (remove-watch session-datas k)
-                   (deliver p nil))))
-    p))
 
 ;;
 ;; Normal Code
@@ -266,14 +253,21 @@
   [msg user-session-id]
   ;; TODO: change the :id for eval results.
   ;; TODO: how do we know when to drop messages?
+  ;; TODO: I think :session is a map of vars at this point!??
   (let [msg (assoc msg :session user-session-id)]
-    (if (and (contains? (:status msg) :done)
-             (= (:id msg) (active-eval-id user-session-id)))
-      (let [{:keys [state]}
-            (transition! user-session-id :eval-done (:id msg))]
-        (when (#{:normal-idle :debug-idle} state)
-          msg))
-      msg)))
+    (cond
+     (and (contains? (:status msg) :done)
+          (= (:id msg) (active-eval-id user-session-id)))
+     (let [{:keys [state]}
+           (transition! user-session-id :eval-done (:id msg))]
+       (when (#{:normal-idle :debug-idle} state)
+         msg))
+
+     (contains? msg :value)
+     (assoc msg :id (active-eval-id user-session-id))
+
+     :else
+     msg)))
 
 (defn ^:private handle-debug
   [handler {:keys [transport op code session] :as msg}]
@@ -295,7 +289,7 @@
       (assoc :transport (reify transport/Transport
                           (send [_ msg]
                             (when-let [msg' (transform-outgoing msg session)]
-                              (println "OUT" msg')
+                              #_(println "OUT" (keys msg'))
                               (transport/send transport msg')))))
       (transform-incoming session)
       (some-> (handler))))
