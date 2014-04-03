@@ -5,7 +5,9 @@
             [clojure.tools.nrepl.misc :refer [response-for]]
             [clojure.tools.nrepl.transport :as transport]
             [com.gfredericks.debug-repl.util :as util])
-  (:import (java.util.concurrent ArrayBlockingQueue)))
+  (:import (java.util.concurrent ArrayBlockingQueue
+                                 Executors
+                                 ExecutorService)))
 
 ;; TODO:
 ;;   - Close nrepl sessions after unbreak!
@@ -18,144 +20,28 @@
 ;;   - Better reporting on how many nested repls there are, etc
 
 
-;;
-;; State Machine Code
-;;
+(defonce ^ExecutorService pool (Executors/newCachedThreadPool))
 
+(def ^:dynamic *break-handler* nil)
 
+(defn run-job
+  [fn]
+  (let [f (.submit pool ^Callable
+                   (fn []
+                     (binding [*break-handler* [(Thread/currentThread) (promise)]])))]
+    ()))
 
-(defn init-session-data
-  [session-id]
-  {:state             :normal-idle
-   :active-session-id session-id})
+(defn register-orphaned-break
+  [eval-fn unbreak-fn]
+  (throw (Error. "Can't do that yet.")))
 
-(defmulti transition (fn [user-session-data action & args]
-                       [(:state user-session-data) action]))
-
-(defmethod transition [:normal-idle :eval-start]
-  [user-session-data _action eval-id]
-  (assoc user-session-data
-    :state :normal-eval
-    :active-eval-id eval-id))
-
-(defmethod transition [:normal-eval :eval-done]
-  [user-session-data _action]
-  (-> user-session-data
-      (assoc :state :normal-idle)
-      (dissoc :active-eval-id)))
-
-(defmethod transition [:normal-eval :break]
-  [user-session-data _action new-session-id eval-fn unbreak-fn]
-  (-> user-session-data
-      (assoc :state :debug-idle)
-      (update-in [:paused-evaluations] conj
-                 {:session-id (:active-session-id user-session-data)
-                  :eval-id    (:current-eval-id user-session-data)
-                  :eval-fn    eval-fn
-                  :unbreak-fn unbreak-fn})
-      (dissoc :active-eval-id :active-session-id)))
-
-(defmethod transition [:debug-idle :eval-start]
-  [user-session-data _action eval-id]
-  (assoc user-session-data
-    :state :debug-eval
-    :active-eval-id eval-id))
-
-(defmethod transition [:normal-eval :unbreak]
-  [_ _]
-  (throw (Exception. "No debug-repl to unbreak from!")))
-
-(defmethod transition [:debug-eval :unbreak]
-  [user-session-data _action callback]
-  (let [{:keys [paused-evaluations]} user-session-data
-        {:keys [unbreak-fn session-id eval-id]} (peek paused-evaluations)]
-    (-> user-session-data
-        (assoc :state :unbreaking
-               :active-session-id session-id
-               :active-eval-id eval-id)
-        (update-in [:paused-evaluations] pop)
-        (update-in [:unbreak-stack] conj
-                   {:callback   callback
-                    :session-id (:active-session-id user-session-data)
-                    :eval-id    (:active-eval-id user-session-data)})
-        (vary-meta assoc :after unbreak-fn))))
-
-(defmethod transition [:debug-eval :eval-done]
-  [user-session-data _action]
-  (-> user-session-data
-      (assoc :state :debug-idle)
-      (dissoc :active-session-id :active-eval-id)))
-
-(defmethod transition [:unbreaking :eval-done]
-  [user-session-data _action]
-  (let [[{:keys [callback session-id eval-id]} & more]
-        (:unbreak-callbacks user-session-data)]
-    (if callback
-      (-> user-session-data
-          (assoc :active-session-id session-id
-                 :active-eval-id eval-id)
-          (vary-meta assoc :after callback))
-      (assoc user-session-data
-        :state (if (empty? (:paused-evaluations user-session-data))
-                 :normal-idle
-                 :debug-idle)))))
-
-#_(defmethod transition [:post-unbreak :eval-done]
-  [user-session-data _action]
-  )
-
-(defmethod transition :default
-  [{:keys [state]} action & args]
-  (throw (Exception. (format "Bad debug-repl state transition: %s -> %s"
-                             (name state)
-                             (name action)))))
-
-(defonce
-  ^{:doc
-    "A map from user-visible nrepl session IDs to a session-data map
-    as handled by the above functions."}
-  session-datas
-  (doto (atom {} :validator map?)
-    (add-watch ::logger
-               (fn [_ _ old new]
-                 (let [[session-id :as ids] (->> (keys new)
-                                                 (remove #(= (get old %)
-                                                             (get new %))))]
-                   (assert (< (count ids) 2))
-                   (when session-id
-                     (.println System/out
-                               (format "State transition (%s): %s -> %s"
-                                       session-id
-                                       (get-in old [session-id :state])
-                                       (get-in new [session-id :state])))))))))
-
-(defn current-state
-  [user-session-id]
-  (get-in @session-datas [user-session-id :state]))
-
-(defn active-eval-id
-  [user-session-id]
-  (get-in @session-datas [user-session-id :active-eval-id]))
-
-(defn transition!
-  "Returns the updated info for the given user session."
-  [user-session-id action & args]
-  (.println System/out (pr-str (list 'transition! user-session-id action '...)))
-  (let [new-data (swap! session-datas
-                        (fn [m]
-                          (let [m (vary-meta m assoc :after nil)]
-                            (apply update-in m [user-session-id] transition
-                                   action
-                                   args))))]
-    (when-let [f (:after new-data)] (f))
-    (get new-data user-session-id)))
-
-(defn ensure-registered
-  [user-session-id]
-  (when-not (contains? @session-datas user-session-id)
-    (swap! session-datas util/assoc-or
-           user-session-id
-           (init-session-data user-session-id))))
+(defn register-break
+  [eval-fn unbreak-fn]
+  (if-let [[t p] *break-handler*]
+    (if (= t (Thread/currentThread))
+      (deliver p {:eval-fn eval-fn :unbreak-fn unbreak-fn})
+      (register-orphaned-break eval-fn unbreak-fn))
+    (register-orphaned-break eval-fn unbreak-fn)))
 
 ;;
 ;; Normal Code
@@ -180,20 +66,11 @@
         unbreak-p (promise)
         ;; probably never need more than 1 here
         eval-requests (ArrayBlockingQueue. 2)]
-    (transition! user-session-id :break
-                 (nest-session-fn)
-                 (fn [code]
-                   (let [result-p (promise)]
-                     (.put eval-requests [code result-p])
-                     (util/uncatch @result-p)))
-                 (fn [] (deliver unbreak-p nil)))
-    (transport/send transport
-                    (response-for *msg*
-                                  {:out (str "Hijacking repl for breakpoint: "
-                                             breakpoint-name)}))
-    (transport/send transport
-                    (response-for *msg*
-                                  {:status #{:done}}))
+    (register-break (fn [code]
+                      (let [result-p (promise)]
+                        (.put eval-requests [code result-p])
+                        (util/uncatch @result-p)))
+                    (fn [] (deliver unbreak-p nil)))
     (loop []
       (when-not (realized? unbreak-p)
         (if-let [[code result-p] (.poll eval-requests)]
@@ -244,13 +121,8 @@
 
             (and (= state :debug-repl) (= op "eval"))
             (assoc :code
-              (pr-str
-               `((-> @session-datas
-                     (get ~user-session-id)
-                     (:paused-evaluations)
-                     (peek)
-                     (:eval-fn))
-                 ~code))))))
+              (format "(com.gfredericks.debug-repl/run-job (bound-fn []\n%s\n))"
+                      code)))))
 
 (defn ^:private transform-outgoing
   [msg user-session-id]
@@ -275,7 +147,6 @@
 (defn ^:private handle-debug
   [handler {:keys [transport op code session] :as msg}]
   {:pre [((some-fn nil? string?) session)]}
-  (println "MSG" msg)
   (when session (ensure-registered session))
   (-> msg
       (assoc ::user-session-id session

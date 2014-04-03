@@ -1,0 +1,14 @@
+* Rewrite #4
+  - Any thread can call (break!)
+  - only the main eval thread is attached to by default?
+    - What if you eval (deref (future (break!)))?
+    - could attach to it from another repl presumably...
+    - things keep getting sent, so the middleware can intercept!
+    - format for special commands? #!attach
+  - #!unbreak ?
+  - What does the middleware track? (per user session ...)
+    -
+  - Should we do this with a single nrepl session via a thread-pool?
+  - How will *1/*2 get managed?
+* Rewrite #5
+  - Goal: don't modify ANY code until somebody calls (break!)
