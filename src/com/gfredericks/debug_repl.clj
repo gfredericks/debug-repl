@@ -138,6 +138,7 @@
 
 (defn ^:private handle-debug
   [handler {:keys [transport op code session] :as msg}]
+  #_{:pre [(or (nil? session) (string? session))]}
   (-> msg
       (assoc ::orig-session-id session
              ::nest-session (fn []
@@ -148,7 +149,9 @@
                                           :transport (reify transport/Transport
                                                        (send [_ msg]
                                                          (deliver p msg)))})
-                                (:new-session @p))))
+                                (or (:new-session @p)
+                                    (throw (ex-info "Failed to clone session!"
+                                                    {:msg @p}))))))
       (wrap-eval)
       (handler)))
 
@@ -159,4 +162,5 @@
   (fn [msg] (handle-debug handler msg)))
 
 (set-descriptor! #'wrap-debug-repl
-                 {:expects #{"eval" "clone"}})
+                 {:expects #{"eval" "clone"
+                             #'clojure.tools.nrepl.middleware.session/session}})

@@ -40,11 +40,13 @@
   (->> (session-fn {:op :eval, :code code-string})
        (map (fn [{:keys [ex err] :as msg}]
               (if (or ex err)
-                (throw (ex-info (str "Error during eval!" (pr-str msg))
-                                {:msg msg}))
+                (throw (ex-info (str "Error during eval!")
+                                {:code code-string
+                                 :msg msg}))
                 msg)))
        (keep :value)
-       (map read-string)))
+       (map read-string)
+       (doall)))
 
 (defmacro eval
   "Returns a sequence of return values from the evaluation."
@@ -62,3 +64,45 @@
     (is (= #{:return nil} (set (eval f (unbreak!))))
         "unbreak first returns the return value from the
          unbroken thread, then its own nil.")))
+
+(deftest repl-vars-test
+  (let [f (fresh-session)]
+    (is (= [] (eval f (let [x 42] (break!) :return))))
+    (is (= [42] (eval f (* 2 3 7))))
+    (is (= [42] (eval f *1)))
+    (try (eval f (/ 42 0))
+         (is false "Shoulda thrown.")
+         (catch clojure.lang.ExceptionInfo e nil))
+    (is (= ["java.lang.ArithmeticException"]
+           (eval f (some-> *e class .getName))))))
+
+
+(comment
+  (do
+    (def server
+      (server/start-server
+       :port 56409
+       :bind "127.0.0.1"
+       :handler (server/default-handler #'wrap-debug-repl)))
+
+    (def t (client/connect :port 56409 :host "127.0.0.1"))
+
+    (def c (client/client t 100))
+    (alter-var-root #'*client* (constantly c))
+
+
+    (def f (fresh-session))
+
+    (defmacro e [code]
+      `(doall (f {:op :eval :code (client/code ~code)}))))
+
+  (e (/ 7 8 9 0))
+  (e (let [x 42] (break!)))
+  (e *e)
+  (e (* 2 3 7))
+  (e *1)
+
+
+
+
+  )
