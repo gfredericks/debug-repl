@@ -49,31 +49,35 @@
         unbreak-p (promise)
         ;; probably never need more than 1 here
         eval-requests (ArrayBlockingQueue. 2)]
-    (swap! active-debug-repls update-in [session-id] conj
-           {:unbreak           (fn [] (deliver unbreak-p nil))
-            :nested-session-id (nest-session-fn)
-            :eval              (fn [code]
-                                 (let [result-p (promise)]
-                                   (.put eval-requests [code result-p])
-                                   (util/uncatch @result-p)))})
-    (transport/send transport
-                    (response-for *msg*
-                                  {:out (str "Hijacking repl for breakpoint: "
-                                             breakpoint-name)}))
-    (transport/send transport
-                    (response-for *msg*
-                                  {:status #{:done}}))
-    (loop []
-      (when-not (realized? unbreak-p)
-        (if-let [[code result-p] (.poll eval-requests)]
-          (let [code' (format "(fn [{:syms [%s]}]\n%s\n)"
-                              (clojure.string/join " " (keys locals))
-                              code)]
-            (deliver result-p
-                     (util/catchingly
-                      ((binding [*ns* ns] (eval (read-string code'))) locals))))
-          (Thread/sleep 50))
-        (recur)))
+    (when-not (-> @active-debug-repls
+                  (get session-id)
+                  (meta)
+                  ::no-more-breaks?)
+     (swap! active-debug-repls update-in [session-id] conj
+            {:unbreak           (fn [] (deliver unbreak-p nil))
+             :nested-session-id (nest-session-fn)
+             :eval              (fn [code]
+                                  (let [result-p (promise)]
+                                    (.put eval-requests [code result-p])
+                                    (util/uncatch @result-p)))})
+     (transport/send transport
+                     (response-for *msg*
+                                   {:out (str "Hijacking repl for breakpoint: "
+                                              breakpoint-name)}))
+     (transport/send transport
+                     (response-for *msg*
+                                   {:status #{:done}}))
+     (loop []
+       (when-not (realized? unbreak-p)
+         (if-let [[code result-p] (.poll eval-requests)]
+           (let [code' (format "(fn [{:syms [%s]}]\n%s\n)"
+                               (clojure.string/join " " (keys locals))
+                               code)]
+             (deliver result-p
+                      (util/catchingly
+                       ((binding [*ns* ns] (eval (read-string code'))) locals))))
+           (Thread/sleep 50))
+         (recur))))
     nil))
 
 (defmacro break!
@@ -105,6 +109,24 @@
     (swap! active-debug-repls update-in [session-id] pop)
     (f)
     nil))
+
+(defn unbreak-for-good!
+  []
+  (unbreak!)
+  (let [{session-id ::orig-session-id
+         orig-handler ::orig-handler}
+        *msg*]
+    (swap! active-debug-repls
+           update-in
+           [session-id] vary-meta assoc ::no-more-breaks? true)
+    (orig-handler
+     {:op "eval"
+      :code (pr-str
+             `(swap! active-debug-repls
+                     update-in [~session-id] vary-meta
+                     dissoc ::no-more-breaks?))}))
+
+  nil)
 
 (defn ^:private wrap-transport-sub-session
   [t from-session to-session]
@@ -140,6 +162,7 @@
   [handler {:keys [transport op code session] :as msg}]
   (-> msg
       (assoc ::orig-session-id session
+             ::orig-handler handler
              ::nest-session (fn []
                               {:post [%]}
                               (let [p (promise)]
