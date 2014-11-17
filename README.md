@@ -31,6 +31,11 @@ nil
 nil
 ```
 
+### `unbreak!!`
+
+The `unbreak!!` function (with two `!`s) will cancel all further
+breakpoints for the remainder of the original evaluation's scope.
+
 ## License
 
 Copyright © 2014 Gary Fredericks

@@ -32,7 +32,7 @@
      (f {:op :eval
          :code (pr-str (list 'ns
                              (gensym "user")
-                             '(:require [com.gfredericks.debug-repl :refer [break! unbreak!]])))}))
+                             '(:require [com.gfredericks.debug-repl :refer [break! unbreak! unbreak!!]])))}))
     f))
 
 (defn eval*
@@ -62,3 +62,15 @@
     (is (= #{:return nil} (set (eval f (unbreak!))))
         "unbreak first returns the return value from the
          unbroken thread, then its own nil.")))
+
+(deftest break-out-of-loop-test
+  (let [f (fresh-session)]
+    (is (= [] (eval f (do (dotimes [n 10] (break!)) :final-return))))
+    (is (= [0] (eval f n)))
+    (is (= [nil] (eval f (unbreak!))))
+    (is (= [1] (eval f n)))
+    (is (= #{:final-return nil} (set (eval f (unbreak!!)))))
+    ;; should be able to break again now
+    (is (= [] (eval f (let [x 42] (break!) :return))))
+    (is (= [42] (eval f x)))
+    (is (= #{:return nil} (set (eval f (unbreak!)))))))

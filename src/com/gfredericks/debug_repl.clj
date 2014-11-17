@@ -30,6 +30,22 @@
   active-debug-repls
   (atom {}))
 
+(defn ^:private set-no-more-breaks!
+  [session-id]
+  (swap! active-debug-repls assoc-in [session-id :no-more-breaks?] true))
+
+(defn ^:private clear-no-more-breaks!
+  [session-id]
+  (swap! active-debug-repls update-in [session-id] dissoc :no-more-breaks?))
+
+(defn ^:private no-more-breaks?
+  [session-id]
+  (get-in @active-debug-repls [session-id :no-more-breaks?]))
+
+(defn innermost-debug-repl
+  [session-id]
+  (peek (get-in @active-debug-repls [session-id :repls])))
+
 (defmacro current-locals
   "Returns a map from symbols of locals in the lexical scope to their
   values."
@@ -49,31 +65,32 @@
         unbreak-p (promise)
         ;; probably never need more than 1 here
         eval-requests (ArrayBlockingQueue. 2)]
-    (swap! active-debug-repls update-in [session-id] conj
-           {:unbreak           (fn [] (deliver unbreak-p nil))
-            :nested-session-id (nest-session-fn)
-            :eval              (fn [code]
-                                 (let [result-p (promise)]
-                                   (.put eval-requests [code result-p])
-                                   (util/uncatch @result-p)))})
-    (transport/send transport
-                    (response-for *msg*
-                                  {:out (str "Hijacking repl for breakpoint: "
-                                             breakpoint-name)}))
-    (transport/send transport
-                    (response-for *msg*
-                                  {:status #{:done}}))
-    (loop []
-      (when-not (realized? unbreak-p)
-        (if-let [[code result-p] (.poll eval-requests)]
-          (let [code' (format "(fn [{:syms [%s]}]\n%s\n)"
-                              (clojure.string/join " " (keys locals))
-                              code)]
-            (deliver result-p
-                     (util/catchingly
-                      ((binding [*ns* ns] (eval (read-string code'))) locals))))
-          (Thread/sleep 50))
-        (recur)))
+    (when-not (no-more-breaks? session-id)
+      (swap! active-debug-repls update-in [session-id :repls] conj
+             {:unbreak           (fn [] (deliver unbreak-p nil))
+              :nested-session-id (nest-session-fn)
+              :eval              (fn [code]
+                                   (let [result-p (promise)]
+                                     (.put eval-requests [code result-p])
+                                     (util/uncatch @result-p)))})
+      (transport/send transport
+                      (response-for *msg*
+                                    {:out (str "Hijacking repl for breakpoint: "
+                                               breakpoint-name)}))
+      (transport/send transport
+                      (response-for *msg*
+                                    {:status #{:done}}))
+      (loop []
+        (when-not (realized? unbreak-p)
+          (if-let [[code result-p] (.poll eval-requests)]
+            (let [code' (format "(fn [{:syms [%s]}]\n%s\n)"
+                                (clojure.string/join " " (keys locals))
+                                code)]
+              (deliver result-p
+                       (util/catchingly
+                        ((binding [*ns* ns] (eval (read-string code'))) locals))))
+            (Thread/sleep 50))
+          (recur))))
     nil))
 
 (defmacro break!
@@ -95,16 +112,20 @@
   state it was in prior to the breakpoint."
   []
   (let [{session-id ::orig-session-id} *msg*
-        f (-> @active-debug-repls
-              (get session-id)
-              (peek)
-              (:unbreak))]
+        f (:unbreak (innermost-debug-repl session-id))]
     (when-not f
       (throw (Exception. "No debug-repl to unbreak from!")))
     ;; TODO: dissoc as well? (minor memory leak)
-    (swap! active-debug-repls update-in [session-id] pop)
+    (swap! active-debug-repls update-in [session-id :repls] pop)
     (f)
     nil))
+
+(defn unbreak!!
+  "Like unbreak! but cancels all remaining breakpoints for the
+  original evaluation."
+  []
+  (set-no-more-breaks! (::orig-session-id *msg*))
+  (unbreak!))
 
 (defn ^:private wrap-transport-sub-session
   [t from-session to-session]
@@ -117,10 +138,7 @@
 
 (defn ^:private wrap-eval
   [{:keys [op code session] :as msg}]
-  (let [nested-session-id (-> @active-debug-repls
-                              (get session)
-                              (peek)
-                              (:nested-session-id))]
+  (let [{:keys [nested-session-id]} (innermost-debug-repl session)]
     (cond-> msg
             nested-session-id
             (-> (assoc :session nested-session-id)
@@ -130,11 +148,20 @@
             (and nested-session-id (= "eval" op))
             (assoc :code
               (pr-str
-               `((-> @active-debug-repls
-                     (get ~session)
-                     (peek)
-                     (:eval))
+               `((:eval (innermost-debug-repl ~session))
                  ~code))))))
+
+(defn ^:private wrap-transport-cleanup
+  [t session-id]
+  (reify transport/Transport
+    (recv [this] (transport/recv t))
+    (recv [this timeout] (transport/recv t timeout))
+    (send [this msg]
+      (when (and (:done (:status msg))
+                 (let [m (get @active-debug-repls session-id)]
+                   (and m (empty? (:repls m)))))
+        (clear-no-more-breaks! session-id))
+      (transport/send t msg))))
 
 (defn ^:private handle-debug
   [handler {:keys [transport op code session] :as msg}]
@@ -149,6 +176,7 @@
                                                        (send [_ msg]
                                                          (deliver p msg)))})
                                 (:new-session @p))))
+      (update-in [:transport] wrap-transport-cleanup session)
       (wrap-eval)
       (handler)))
 
