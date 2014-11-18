@@ -1,4 +1,9 @@
 (ns com.gfredericks.debug-repl
+  ;; backwards compatibility stuff
+  (:refer-clojure :exclude [cond->])
+  (:require [com.gfredericks.debug-repl.backpat :refer [cond->]])
+
+  ;; normal requires
   (:require [clojure.tools.nrepl.middleware :refer [set-descriptor!]]
             [clojure.tools.nrepl.middleware.interruptible-eval :refer [*msg*]]
             [clojure.tools.nrepl.misc :refer [response-for]]
