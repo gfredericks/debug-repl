@@ -5,4 +5,5 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.6.0"]]
   :deploy-repositories [["releases" :clojars]]
-  :profiles {:1.4 {:dependencies [[org.clojure/clojure "1.4.0"]]}})
+  :profiles {:1.4 {:dependencies [[org.clojure/clojure "1.4.0"]]}
+             :dev {:plugins [[com.gfredericks/nrepl-53-monkeypatch "0.1.0"]]}})
