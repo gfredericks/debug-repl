@@ -8,6 +8,7 @@
             [clojure.tools.nrepl.middleware.interruptible-eval :refer [*msg*]]
             [clojure.tools.nrepl.misc :refer [response-for]]
             [clojure.tools.nrepl.transport :as transport]
+            [com.gfredericks.debug-repl.nrepl-53 :refer [report-nrepl-53-bug]]
             [com.gfredericks.debug-repl.util :as util])
   (:import (java.util.concurrent ArrayBlockingQueue)))
 
@@ -168,25 +169,37 @@
         (clear-no-more-breaks! session-id))
       (transport/send t msg))))
 
+(defn syncronous-new-session
+  [handler session-id]
+  (let [p (promise)]
+    (handler {:session session-id
+              :op "clone"
+              :transport (reify transport/Transport
+                           (send [_ msg]
+                             (deliver p msg)))})
+    (when (:unknown-op (:status @p))
+      (throw (ex-info "Bad middleware ordering!" {:type ::bad-middleware-ordering})))
+    (:new-session @p)))
+
 (defn ^:private handle-debug
   [handler {:keys [transport op code session] :as msg}]
   (-> msg
       (assoc ::orig-session-id session
              ::nest-session (fn []
                               {:post [%]}
-                              (let [p (promise)]
-                                (handler {:session session
-                                          :op "clone"
-                                          :transport (reify transport/Transport
-                                                       (send [_ msg]
-                                                         (deliver p msg)))})
-                                (:new-session @p))))
+                              (syncronous-new-session handler session)))
       (update-in [:transport] wrap-transport-cleanup session)
       (wrap-eval)
       (handler)))
 
 (defn wrap-debug-repl
   [handler]
+  ;; Test for NREPL-53 at startup
+  (try (syncronous-new-session handler nil)
+       (catch clojure.lang.ExceptionInfo e
+         (when (= ::bad-middleware-ordering (:type (ex-data e)))
+           (report-nrepl-53-bug))))
+
   ;; having handle-debug as a separate function makes it easier to do
   ;; interactive development on this middleware
   (fn [msg] (handle-debug handler msg)))
