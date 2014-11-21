@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.6
+
+Sorta fix `*1`, `*2`, etc.
+
 ## 0.0.5
 
 Detects the NREPL-53 bug instead of failing strangely.
