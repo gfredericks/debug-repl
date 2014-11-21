@@ -76,8 +76,16 @@
              {:unbreak           (fn [] (deliver unbreak-p nil))
               :nested-session-id (nest-session-fn)
               :eval              (fn [code]
-                                   (let [result-p (promise)]
-                                     (.put eval-requests [code result-p])
+                                   (let [result-p (promise)
+                                         ;; using the bindings from
+                                         ;; the cloned session seems
+                                         ;; like the best way to get
+                                         ;; *1, *2, etc.  to work
+                                         ;; right. Not sure if there
+                                         ;; are other surprising
+                                         ;; consequences.
+                                         binding-fn (bound-fn [f] (f))]
+                                     (.put eval-requests [code binding-fn result-p])
                                      (util/uncatch @result-p)))})
       (transport/send transport
                       (response-for *msg*
@@ -88,13 +96,15 @@
                                     {:status #{:done}}))
       (loop []
         (when-not (realized? unbreak-p)
-          (if-let [[code result-p] (.poll eval-requests)]
+          (if-let [[code binding-fn result-p] (.poll eval-requests)]
             (let [code' (format "(fn [{:syms [%s]}]\n%s\n)"
                                 (clojure.string/join " " (keys locals))
                                 code)]
               (deliver result-p
                        (util/catchingly
-                        ((binding [*ns* ns] (eval (read-string code'))) locals))))
+                        (binding-fn
+                         (fn []
+                           ((binding [*ns* ns] (eval (read-string code'))) locals))))))
             (Thread/sleep 50))
           (recur))))
     nil))
