@@ -113,7 +113,7 @@
   "Use only with the com.gfredericks.debug-repl/wrap-debug-repl middleware.
 
   Causes execution to stop and the repl switches to evaluating code in the
-  context of the breakpoint. Resume exeution by calling (unbreak!). REPL
+  context of the breakpoint. Resume execution by calling (unbreak!). REPL
   code can result in a nested call to break! which will work in a reasonable
   way. Nested breaks require multiple calls to (unbreak!) to undo."
   ([]
