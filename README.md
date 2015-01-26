@@ -36,6 +36,11 @@ nil
 The `unbreak!!` function (with two `!`s) will cancel all further
 breakpoints for the remainder of the original evaluation's scope.
 
+## TODOs
+
+- Implement `(throw! ex-fn)` for unbreaking and causing the original
+  execution to throw an exception.
+
 ## License
 
 Copyright © 2014 Gary Fredericks
