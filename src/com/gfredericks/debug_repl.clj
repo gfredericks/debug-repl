@@ -216,3 +216,14 @@
 
 (set-descriptor! #'wrap-debug-repl
                  {:expects #{"eval" "clone"}})
+
+;;
+;; Helpers
+;;
+
+(defmacro catch-break!
+  "Executes body and breaks if it throws an exception. The exception
+  will be in the local scope as &ex. The exception will be re-thrown
+  after unbreaking."
+  [& body]
+  `(try ~@body (catch Throwable ~'&ex (./break!) (throw ~'&ex))))
