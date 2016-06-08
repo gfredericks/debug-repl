@@ -37,12 +37,19 @@
   (atom {}))
 
 (defn ^:private set-no-more-breaks!
-  [session-id]
-  (swap! active-debug-repls assoc-in [session-id :no-more-breaks?] true))
+  "Sets the flag in this debug repl so that it will not break anymore
+  until the original eval is complete."
+  [session-id msg-id]
+  (swap! active-debug-repls assoc-in [session-id :no-more-breaks?] msg-id))
 
-(defn ^:private clear-no-more-breaks!
-  [session-id]
-  (swap! active-debug-repls update-in [session-id] dissoc :no-more-breaks?))
+(defn ^:private maybe-clear-no-more-breaks!
+  "Clears no-more-breaks unless it was set by this message."
+  [session-id msg-id]
+  (swap! active-debug-repls update-in [session-id]
+         (fn [session-data]
+           (cond-> session-data
+             (not= (get session-data :no-more-breaks?) msg-id)
+             (dissoc :no-more-breaks?)))))
 
 (defn ^:private no-more-breaks?
   [session-id]
@@ -140,7 +147,7 @@
   "Like unbreak! but cancels all remaining breakpoints for the
   original evaluation."
   []
-  (set-no-more-breaks! (::orig-session-id *msg*))
+  (set-no-more-breaks! (::orig-session-id *msg*) (::msg-id *msg*))
   (unbreak!))
 
 (defn ^:private wrap-transport-sub-session
@@ -168,7 +175,7 @@
                  ~code))))))
 
 (defn ^:private wrap-transport-cleanup
-  [t session-id]
+  [t session-id msg-id]
   (reify transport/Transport
     (recv [this] (transport/recv t))
     (recv [this timeout] (transport/recv t timeout))
@@ -176,7 +183,7 @@
       (when (and (:done (:status msg))
                  (let [m (get @active-debug-repls session-id)]
                    (and m (empty? (:repls m)))))
-        (clear-no-more-breaks! session-id))
+        (maybe-clear-no-more-breaks! session-id msg-id))
       (transport/send t msg))))
 
 (defn syncronous-new-session
@@ -193,14 +200,16 @@
 
 (defn ^:private handle-debug
   [handler {:keys [transport op code session] :as msg}]
-  (-> msg
-      (assoc ::orig-session-id session
-             ::nest-session (fn []
-                              {:post [%]}
-                              (syncronous-new-session handler session)))
-      (update-in [:transport] wrap-transport-cleanup session)
-      (wrap-eval)
-      (handler)))
+  (let [msg-id (java.util.UUID/randomUUID)]
+    (-> msg
+        (assoc ::orig-session-id session
+               ::msg-id msg-id
+               ::nest-session (fn []
+                                {:post [%]}
+                                (syncronous-new-session handler session)))
+        (update-in [:transport] wrap-transport-cleanup session msg-id)
+        (wrap-eval)
+        (handler))))
 
 (defn wrap-debug-repl
   [handler]
