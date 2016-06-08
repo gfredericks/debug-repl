@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.8
+
+Fixed a race condition in `unbreak!!` that caused it to just not work.
+
+## 0.0.7
+
+Added `catch-break!`.
+
 ## 0.0.6
 
 Sorta fix `*1`, `*2`, etc.
