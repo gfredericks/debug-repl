@@ -16,7 +16,10 @@
               t (client/connect :port 56408 :host "127.0.0.1")]
     (let [c (client/client t 100)]
       (binding [*client* c]
-        (test)))))
+        (test))))
+  ;; there's gotta be a better way to wait for the server to really be
+  ;; shutdown
+  (Thread/sleep 100))
 
 (defn clear-active-repl-info-fixture
   [test]
