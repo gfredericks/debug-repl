@@ -41,8 +41,11 @@
     (alter-var-root #'the-executor #(or % executor))
     (when (= the-executor executor)
       (try
-        (while true
-          (when-let [func (.poll queue 1 TimeUnit/SECONDS)]
-            (func)))
+        (loop []
+          (if-let [func (.poll queue 10 TimeUnit/SECONDS)]
+            (do
+              (func)
+              (recur))
+            :no-reqs-for-10-seconds))
         (finally
           (alter-var-root #'the-executor (constantly nil)))))))
