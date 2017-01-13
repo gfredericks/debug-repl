@@ -5,19 +5,20 @@
 
 (def the-executor nil) ;; global mutable state
 
-(defn wrap-http-intercept
-  [handler]
-  (fn [req]
-    (if-let [executor the-executor]
-      (executor #(handler req))
-      (handler req))))
-
 (defn can-break?
   []
   ;; this just checks if we're in a repl
   (boolean clojure.tools.nrepl.middleware.interruptible-eval/*msg*))
 
-(defn intercept-http!
+(defmacro break!
+  [& args]
+  `(if (can-break?)
+     (com.gfredericks.debug-repl/break! ~@args)
+     (if-let [e# the-executor]
+       (e# #(com.gfredericks.debug-repl/break! ~@args))
+       :noop)))
+
+(defn wait-for-breaks
   []
   ;; if the repl is busy executing a request, should concurrent
   ;; requests block or skip the repl execution altogether?
@@ -36,7 +37,8 @@
                                (catch Throwable t
                                  [nil t]))))]
             (.put queue f)
-            (let [[x err] @p] (or x (throw err)))))]
+            (let [[x err] @p]
+              (if err (throw err) x))))]
 
     (alter-var-root #'the-executor #(or % executor))
     (when (= the-executor executor)
