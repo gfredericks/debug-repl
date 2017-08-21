@@ -38,7 +38,7 @@
                              '(:require [com.gfredericks.debug-repl :refer [break! unbreak! unbreak!!]])))}))
     f))
 
-(defn eval*
+(defn unparsed-eval*
   [session-fn code-string]
   (->> (session-fn {:op :eval, :code code-string})
        (map (fn [{:keys [ex err] :as msg}]
@@ -47,7 +47,11 @@
                                 {:msg msg}))
                 msg)))
        (keep :value)
-       (map read-string)))
+       (doall)))
+
+(defn eval*
+  [session-fn code-string]
+  (map read-string (unparsed-eval* session-fn code-string)))
 
 (defmacro eval
   "Returns a sequence of return values from the evaluation."
@@ -100,4 +104,7 @@
       (let [[msg1 msg2] (eval-raw f (/ 42 0))]
         (is (= (clojure.set/subset? #{:err :ex} (set (concat (keys msg1) (keys msg2)))))))
       (is (= ["java.lang.ArithmeticException"]
-             (eval f (-> *e class .getName)))))))
+             (eval f (-> *e class .getName)))))
+
+    (testing "Unbound primitives"
+      (is (unparsed-eval* f "(fn [^long x] (break!))")))))
