@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.9 (2017-08-24)
+
+Fixes a [bug with primitive type hints](https://github.com/gfredericks/debug-repl/issues/4).
+
 ## 0.0.8
 
 Fixed a race condition in `unbreak!!` that caused it to just not work.
