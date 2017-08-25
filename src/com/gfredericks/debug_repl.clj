@@ -65,7 +65,8 @@
   []
   (into {}
         (for [name (keys &env)]
-          [(list 'quote name) name])))
+          [(list 'quote name)
+           (vary-meta name dissoc :tag) ])))
 
 
 (defn break
