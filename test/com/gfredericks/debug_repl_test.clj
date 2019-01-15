@@ -1,7 +1,7 @@
 (ns com.gfredericks.debug-repl-test
   (:refer-clojure :exclude [eval])
-  (:require [clojure.tools.nrepl :as client]
-            [clojure.tools.nrepl.server :as server])
+  (:require [nrepl.core :as client]
+            [nrepl.server :as server])
   (:use clojure.test
         com.gfredericks.debug-repl))
 
