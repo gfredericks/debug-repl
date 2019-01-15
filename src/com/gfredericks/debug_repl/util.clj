@@ -10,3 +10,10 @@
 (defn uncatch
   [[type x]]
   (case type :returned x :threw (throw x)))
+
+(defn require? [symbol]
+  (try
+    (require symbol)
+    true
+    (catch Exception e
+      false)))

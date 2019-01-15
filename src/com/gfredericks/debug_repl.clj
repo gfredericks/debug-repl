@@ -4,13 +4,19 @@
   (:require [com.gfredericks.debug-repl.backpat :refer [cond->]])
 
   ;; normal requires
-  (:require [clojure.tools.nrepl.middleware :refer [set-descriptor!]]
-            [clojure.tools.nrepl.middleware.interruptible-eval :refer [*msg*]]
-            [clojure.tools.nrepl.misc :refer [response-for]]
-            [clojure.tools.nrepl.transport :as transport]
-            [com.gfredericks.debug-repl.nrepl-53 :refer [report-nrepl-53-bug]]
+  (:require [com.gfredericks.debug-repl.nrepl-53 :refer [report-nrepl-53-bug]]
             [com.gfredericks.debug-repl.util :as util])
   (:import (java.util.concurrent ArrayBlockingQueue)))
+
+(if (util/require? 'nrepl.server)
+  (require '[nrepl.middleware :refer [set-descriptor!]]
+           '[nrepl.middleware.interruptible-eval :refer [*msg*]]
+           '[nrepl.misc :refer [response-for]]
+           '[nrepl.transport :as transport])
+  (require '[clojure.tools.nrepl.middleware :refer [set-descriptor!]]
+           '[clojure.tools.nrepl.middleware.interruptible-eval :refer [*msg*]]
+           '[clojure.tools.nrepl.misc :refer [response-for]]
+           '[clojure.tools.nrepl.transport :as transport]))
 
 ;; TODO:
 ;;   - Close nrepl sessions after unbreak!
