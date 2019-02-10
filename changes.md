@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.10 (2019-02-10)
+
+Supports the namespace change in newer versions of nrepl (and thus
+leiningen) ([#7](https://github.com/gfredericks/debug-repl/issues/7)
+and [#8](https://github.com/gfredericks/debug-repl/pull/8)).
+
 ## 0.0.9 (2017-08-24)
 
 Fixes a [bug with primitive type hints](https://github.com/gfredericks/debug-repl/issues/4).
