@@ -40,6 +40,23 @@ breakpoints for the remainder of the original evaluation's scope.
 
 A macro which will break only if the wrapped code throws an exception.
 
+## nREPL compatibility
+
+A major change in the nREPL ecosystem around 2018 resulted in a
+confusing situation for dev setups involving a composition of
+different nREPL-based tools. Because the maven artefact id change
+(`org.clojure/nrepl` -> `nrepl/nrepl`) and the base namespace changed
+`clojure.tools.nrepl` -> `nrepl`), it is possible to have both the old
+version and the new version of nREPL on the classpath at the same
+time, with the possibility that some tools expect to use one and some
+tools expect to use the other.
+
+debug-repl assumes the old version of nREPL for versions `0.0.9` and
+earlier, and supports both as of version `0.0.10`; if it happens that
+both versions are on your classpath, debug-repl will optimistically
+pick the newer version; however, likely the best situation is to
+figure out how to only have the newer version on your classpath.
+
 ## TODOs
 
 - Implement `(throw! ex-fn)` for unbreaking and causing the original
