@@ -1,4 +1,4 @@
-(ns com.gfredericks.debug-repl.http-intercept
+(ns com.gfredericks.debug-repl.async
   (:require
     [com.gfredericks.debug-repl :as debug-repl]
     [com.gfredericks.debug-repl.util :as util])
