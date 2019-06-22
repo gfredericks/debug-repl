@@ -1,6 +1,7 @@
 (ns com.gfredericks.debug-repl.http-intercept
   (:require
-    [com.gfredericks.debug-repl :as debug-repl])
+    [com.gfredericks.debug-repl :as debug-repl]
+    [com.gfredericks.debug-repl.util :as util])
   (:import (java.util.concurrent
             ArrayBlockingQueue
             TimeUnit)))
@@ -10,7 +11,10 @@
 (defn can-break?
   []
   ;; this just checks if we're in a repl
-  (boolean clojure.tools.nrepl.middleware.interruptible-eval/*msg*))
+  (boolean
+    (if (util/require? 'nrepl.server)
+      @(resolve 'nrepl.middleware.interruptible-eval/*msg*)
+      @(resolve 'clojure.tools.nrepl.middleware.interruptible-eval/*msg*))))
 
 (defmacro break!
   [& args]
