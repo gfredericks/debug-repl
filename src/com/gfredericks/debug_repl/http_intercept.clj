@@ -1,4 +1,6 @@
 (ns com.gfredericks.debug-repl.http-intercept
+  (:require
+    [com.gfredericks.debug-repl :as debug-repl])
   (:import (java.util.concurrent
             ArrayBlockingQueue
             TimeUnit)))
@@ -13,9 +15,9 @@
 (defmacro break!
   [& args]
   `(if (can-break?)
-     (com.gfredericks.debug-repl/break! ~@args)
+     (debug-repl/break! ~@args)
      (if-let [e# the-executor]
-       (e# #(com.gfredericks.debug-repl/break! ~@args))
+       (e# #(debug-repl/break! ~@args))
        :noop)))
 
 (defn wait-for-breaks
