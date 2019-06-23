@@ -48,14 +48,11 @@
             (let [[x err] @p]
               (if err (throw err) x))))]
 
-    (alter-var-root #'the-executor #(or % executor))
-    (when (= the-executor executor)
-      (try
+    (with-redefs [the-executor (or the-executor executor)]
+      (when (= the-executor executor)
         (loop []
           (if-let [func (.poll queue 10 TimeUnit/SECONDS)]
             (do
               (func)
               (recur))
-            :no-reqs-for-10-seconds))
-        (finally
-          (alter-var-root #'the-executor (constantly nil)))))))
+            :no-reqs-for-10-seconds))))))
