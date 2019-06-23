@@ -20,6 +20,9 @@
   (boolean (var-get msg-var)))
 
 (defmacro break!
+  "Equivalent to com.gfredericks.debug-repl/break! except that if not run from
+  an nREPL session (e.g. from a ring request) then will attempt to connect to
+  the connection where wait-for-breaks is being called."
   [& args]
   `(if (can-break?)
      (debug-repl/break! ~@args)
@@ -28,6 +31,8 @@
        :noop)))
 
 (defn wait-for-breaks
+  "Wait for a call to break! outside of the nREPL.  Takes an optional timeout
+  in seconds to wait which is by default 10 seconds."
   ([] (wait-for-breaks 10))
   ([timeout-seconds]
    ;; if the repl is busy executing a request, should concurrent
