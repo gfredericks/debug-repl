@@ -14,6 +14,7 @@
     (resolve 'clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
 
 (defn can-break?
+  "Implementation detail. Subject to change."
   []
   ;; this just checks if we're in a repl
   (boolean (var-get msg-var)))
