@@ -27,32 +27,33 @@
        :noop)))
 
 (defn wait-for-breaks
-  []
-  ;; if the repl is busy executing a request, should concurrent
-  ;; requests block or skip the repl execution altogether?
-  ;;
-  ;; going to try blocking first
-  (let [queue (java.util.concurrent.ArrayBlockingQueue. 16)
+  ([] (wait-for-breaks 10))
+  ([timeout-seconds]
+   ;; if the repl is busy executing a request, should concurrent
+   ;; requests block or skip the repl execution altogether?
+   ;;
+   ;; going to try blocking first
+   (let [queue (java.util.concurrent.ArrayBlockingQueue. 16)
 
-        executor
-        (fn [func]
-          (let [p (promise)
-                f (bound-fn
-                    []
-                    (deliver p
-                             (try
-                               [(func)]
-                               (catch Throwable t
-                                 [nil t]))))]
-            (.put queue f)
-            (let [[x err] @p]
-              (if err (throw err) x))))]
+         executor
+         (fn [func]
+           (let [p (promise)
+                 f (bound-fn
+                     []
+                     (deliver p
+                              (try
+                                [(func)]
+                                (catch Throwable t
+                                  [nil t]))))]
+             (.put queue f)
+             (let [[x err] @p]
+               (if err (throw err) x))))]
 
-    (with-redefs [the-executor (or the-executor executor)]
-      (when (= the-executor executor)
-        (loop []
-          (if-let [func (.poll queue 10 TimeUnit/SECONDS)]
-            (do
-              (func)
-              (recur))
-            :no-reqs-for-10-seconds))))))
+     (with-redefs [the-executor (or the-executor executor)]
+       (when (= the-executor executor)
+         (loop []
+           (if-let [func (.poll queue timeout-seconds TimeUnit/SECONDS)]
+             (do
+               (func)
+               (recur))
+             :no-reqs-before-timeout)))))))
