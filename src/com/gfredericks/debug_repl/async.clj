@@ -8,13 +8,15 @@
 
 (def the-executor nil) ;; global mutable state
 
+(def ^:private msg-var
+  (if (util/require? 'nrepl.server)
+    (resolve 'nrepl.middleware.interruptible-eval/*msg*)
+    (resolve 'clojure.tools.nrepl.middleware.interruptible-eval/*msg*)))
+
 (defn can-break?
   []
   ;; this just checks if we're in a repl
-  (boolean
-    (if (util/require? 'nrepl.server)
-      @(resolve 'nrepl.middleware.interruptible-eval/*msg*)
-      @(resolve 'clojure.tools.nrepl.middleware.interruptible-eval/*msg*))))
+  (boolean (var-get msg-var)))
 
 (defmacro break!
   [& args]
