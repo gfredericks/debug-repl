@@ -33,13 +33,10 @@
 (defn wait-for-breaks
   "Wait for a call to break! outside of the nREPL.  Takes an optional timeout
   in seconds to wait which is by default 10 seconds."
-  ([] (wait-for-breaks 10))
-  ([timeout-seconds]
-   ;; if the repl is busy executing a request, should concurrent
-   ;; requests block or skip the repl execution altogether?
-   ;;
-   ;; going to try blocking first
-   (let [queue (java.util.concurrent.ArrayBlockingQueue. 16)
+  ([] (wait-for-breaks 10 true))
+  ([timeout] (wait-for-breaks 10 true))
+  ([timeout-seconds wait?]
+   (let [queue (java.util.concurrent.SynchronousQueue.)
 
          executor
          (fn [func]
@@ -51,9 +48,12 @@
                                 [(func)]
                                 (catch Throwable t
                                   [nil t]))))]
-             (.put queue f)
-             (let [[x err] @p]
-               (if err (throw err) x))))]
+
+             (if (or (and wait? (do (.put queue f) true))
+                     (.offer queue f))
+               (let [[x err] @p]
+                 (if err (throw err) x))
+               :noop)))]
 
      (with-redefs [the-executor (or the-executor executor)]
        (when (= the-executor executor)
