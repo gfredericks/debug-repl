@@ -11,7 +11,7 @@ evaluate code in the context of the breakpoint.
 Add the dependency and the middleware, e.g. in your `:user` profile:
 
 ``` clojure
-:dependencies [[com.gfredericks/debug-repl "0.0.10"]]
+:dependencies [[com.gfredericks/debug-repl "0.0.11"]]
 :repl-options
   {:nrepl-middleware
     [com.gfredericks.debug-repl/wrap-debug-repl]}
