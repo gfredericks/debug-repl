@@ -3,7 +3,7 @@
     [com.gfredericks.debug-repl :as debug-repl]
     [com.gfredericks.debug-repl.util :as util])
   (:import (java.util.concurrent
-            ArrayBlockingQueue
+            SynchronousQueue
             TimeUnit)))
 
 (def the-executor nil) ;; global mutable state
@@ -32,11 +32,14 @@
 
 (defn wait-for-breaks
   "Wait for a call to break! outside of the nREPL.  Takes an optional timeout
-  in seconds to wait which is by default 10 seconds."
+  in seconds to wait which is by default 10 seconds.
+  
+  The second arg is a boolean (defaulting to true) that determines whether 
+  calls to `break!` should block when other break calls are currently active."
   ([] (wait-for-breaks 10 true))
   ([timeout] (wait-for-breaks timeout true))
   ([timeout-seconds wait?]
-   (let [queue (java.util.concurrent.SynchronousQueue.)
+   (let [queue (SynchronousQueue.)
 
          executor
          (fn [func]
