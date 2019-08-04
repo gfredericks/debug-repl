@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.11 (2019-08-04)
+
+Adds the new `com.gfredericks.debug-repl.async` namespace.
+
 ## 0.0.10 (2019-02-10)
 
 Supports the namespace change in newer versions of nrepl (and thus
