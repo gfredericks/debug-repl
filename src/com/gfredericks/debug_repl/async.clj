@@ -34,7 +34,7 @@
   "Wait for a call to break! outside of the nREPL.  Takes an optional timeout
   in seconds to wait which is by default 10 seconds."
   ([] (wait-for-breaks 10 true))
-  ([timeout] (wait-for-breaks 10 true))
+  ([timeout] (wait-for-breaks timeout true))
   ([timeout-seconds wait?]
    (let [queue (java.util.concurrent.SynchronousQueue.)
 
