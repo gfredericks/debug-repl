@@ -11,7 +11,7 @@
              :1.6 {:dependencies [^:replace [org.clojure/clojure "1.6.0"]]}
              :1.7 {:dependencies [^:replace [org.clojure/clojure "1.7.0"]]}
              :1.8 {:dependencies [^:replace [org.clojure/clojure "1.8.0"]]}
-             :dev {:plugins [[com.gfredericks/nrepl-53-monkeypatch "0.1.0"]]}}
+             :old-lein {:plugins [[com.gfredericks/nrepl-53-monkeypatch "0.1.0"]]}}
   ;; use `lein all test` to run the tests on all versions
   ;;
   ;; Skipping 1.3 because I'm not in the mood to do backpat tricks for
