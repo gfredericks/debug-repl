@@ -237,9 +237,24 @@
 ;; Helpers
 ;;
 
+(def break-return (atom ::throw))
+
+(defn return! [value]
+  (reset! break-return value)
+  (unbreak!))
+
+(defn return!! [value]
+  (reset! break-return value)
+  (unbreak!!))
+
 (defmacro catch-break!
   "Executes body and breaks if it throws an exception. The exception
   will be in the local scope as &ex. The exception will be re-thrown
   after unbreaking."
   [& body]
-  `(try ~@body (catch Throwable ~'&ex (./break!) (throw ~'&ex))))
+  `(try ~@body (catch Throwable ~'&ex
+                 (reset! break-return ::throw)
+                 (break!)
+                 (if (= ::throw @break-return)
+                   (throw ~'&ex)
+                   @break-return))))

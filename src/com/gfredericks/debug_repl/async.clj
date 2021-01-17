@@ -30,6 +30,18 @@
        (e# #(debug-repl/break! ~@args))
        :noop)))
 
+(defmacro catch-break!
+  "Executes body and breaks if it throws an exception. The exception
+  will be in the local scope as &ex. The exception will be re-thrown
+  after unbreaking."
+  [& body]
+  `(try ~@body (catch Throwable ~'&ex
+                 (reset! debug-repl/break-return ::throw)
+                 (break!)
+                 (if (= ::throw @debug-repl/break-return)
+                   (throw ~'&ex)
+                   @debug-repl/break-return))))
+
 (defn wait-for-breaks
   "Wait for a call to break! outside of the nREPL.  Takes an optional timeout
   in seconds to wait which is by default 10 seconds.
