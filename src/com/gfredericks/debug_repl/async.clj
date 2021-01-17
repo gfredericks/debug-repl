@@ -35,12 +35,17 @@
   will be in the local scope as &ex. The exception will be re-thrown
   after unbreaking."
   [& body]
-  `(try ~@body (catch Throwable ~'&ex
-                 (reset! debug-repl/break-return ::throw)
-                 (break!)
-                 (if (= ::throw @debug-repl/break-return)
-                   (throw ~'&ex)
-                   @debug-repl/break-return))))
+  (let [[name body]
+        (if (and (or (string? (first body)) (keyword? (first body)))
+                 (next body))
+          [(first body) (next body)]
+          ["catch-break!" body])]
+    `(try ~@body (catch Throwable ~'&ex
+                   (reset! debug-repl/break-return ::throw)
+                   (break! ~name)
+                   (if (= ::throw @debug-repl/break-return)
+                     (throw ~'&ex)
+                     @debug-repl/break-return)))))
 
 (defn wait-for-breaks
   "Wait for a call to break! outside of the nREPL.  Takes an optional timeout
