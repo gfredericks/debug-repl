@@ -237,6 +237,13 @@
 ;; Helpers
 ;;
 
+
+;; this being a global atom is probably a problem for particular
+;; complicated uses; it could probably be fixed by making the var
+;; dynamic and creating a new atom with each catch-break call; the
+;; only detail to pay attention to is the binding conveyance, making
+;; sure that the atom is visible on whatever thread actually executes
+;; the return! call
 (def break-return (atom ::throw))
 
 (defn return! [value]
