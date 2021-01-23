@@ -237,21 +237,20 @@
 ;; Helpers
 ;;
 
-
 ;; this being a global atom is probably a problem for particular
 ;; complicated uses; it could probably be fixed by making the var
 ;; dynamic and creating a new atom with each catch-break call; the
 ;; only detail to pay attention to is the binding conveyance, making
 ;; sure that the atom is visible on whatever thread actually executes
 ;; the return! call
-(def break-return (atom ::throw))
+(def break-return (atom []))
 
 (defn return! [value]
-  (reset! break-return value)
+  (swap! break-return #(-> % pop (conj value)))
   (unbreak!))
 
 (defn return!! [value]
-  (reset! break-return value)
+  (swap! break-return #(-> % pop (conj value)))
   (unbreak!!))
 
 (defmacro catch-break!
@@ -265,8 +264,10 @@
           [(first body) (next body)]
           ["catch-break!" body])]
     `(try ~@body (catch Throwable ~'&ex
-                   (reset! break-return ::throw)
+                   (swap! break-return conj ::throw)
                    (break! ~name)
-                   (if (= ::throw @break-return)
-                     (throw ~'&ex)
-                     @break-return)))))
+                   (let [return# (peek @break-return)]
+                     (swap! break-return pop)
+                     (if (= ::throw return#)
+                       (throw ~'&ex)
+                       return#))))))

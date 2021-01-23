@@ -41,11 +41,12 @@
           [(first body) (next body)]
           ["catch-break!" body])]
     `(try ~@body (catch Throwable ~'&ex
-                   (reset! debug-repl/break-return ::throw)
+                   (swap! debug-repl/break-return conj ::throw)
                    (break! ~name)
-                   (if (= ::throw @debug-repl/break-return)
-                     (throw ~'&ex)
-                     @debug-repl/break-return)))))
+                   (let [return# (peek @debug-repl/break-return)]
+                     (if (= ::throw return#)
+                       (throw ~'&ex)
+                       return#))))))
 
 (defn wait-for-breaks
   "Wait for a call to break! outside of the nREPL.  Takes an optional timeout
