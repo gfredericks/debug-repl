@@ -44,6 +44,7 @@
                    (swap! debug-repl/break-return conj ::throw)
                    (break! ~name)
                    (let [return# (peek @debug-repl/break-return)]
+                     (swap! break-return pop)
                      (if (= ::throw return#)
                        (throw ~'&ex)
                        return#))))))
