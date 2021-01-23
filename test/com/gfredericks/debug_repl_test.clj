@@ -35,7 +35,7 @@
      (f {:op :eval
          :code (pr-str (list 'ns
                              (gensym "user")
-                             '(:require [com.gfredericks.debug-repl :refer [break! unbreak! unbreak!!]])))}))
+                             '(:require [com.gfredericks.debug-repl :refer [break! unbreak! unbreak!! catch-break! return!]])))}))
     f))
 
 (defn unparsed-eval*
@@ -108,3 +108,15 @@
 
     (testing "Unbound primitives"
       (is (unparsed-eval* f "(fn [^long x] (break!))")))))
+
+(deftest catch-break-regression-test
+  (let [f (fresh-session)]
+    (eval f (catch-break! (throw (Exception. "oh well"))))
+    (is (thrown-with-msg? Exception #"oh well" (eval f (unbreak!))))))
+
+(deftest return!-test
+  (let [f (fresh-session)]
+    (eval f (def jake (atom nil)))
+    (eval f (reset! jake (catch-break! (throw (Exception. "oh well")))))
+    (eval f (return! :twelve))
+    (is (= [:twelve] (eval f @jake)))))
