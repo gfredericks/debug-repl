@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.12 (2021-01-23)
+
+Thanks to Darrick Wiebe for these features.
+
+- Fix a bug in `catch-break!`.
+- Add support for `return!` from `catch-break!`
+- Add label support to `catch-break!`
+
 ## 0.0.11 (2019-08-04)
 
 Adds the new `com.gfredericks.debug-repl.async` namespace.
