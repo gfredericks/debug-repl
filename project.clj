@@ -1,4 +1,4 @@
-(defproject com.gfredericks/debug-repl "0.0.12-SNAPSHOT"
+(defproject com.gfredericks/debug-repl "0.0.12"
   :description "A Clojure debug repl as nrepl middleware."
   :url "https://github.com/fredericksgary/debug-repl"
   :license {:name "Eclipse Public License"
